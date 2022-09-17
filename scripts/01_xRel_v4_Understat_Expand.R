@@ -93,7 +93,7 @@ rlnt_xg_all %>%
   summarise(across(where(is.numeric), ~ sum(.x))) %>% 
   mutate(total_xG_ahead = total_xG_ahead_1 + total_xG_ahead_2 + total_xG_ahead_N) %>% 
   select(-c(match_id)) %>% 
-  arrange(desc(total_xG_ahead))
+  arrange(desc(total_xG_ahead_N))
 
 #2. GET MINUTES PER STATE ----
 rlnt_min <- rlnt_xg %>%
@@ -240,17 +240,18 @@ rlnt_all_by_team_season <- rlnt_all %>%
   group_by(competition, team, season) %>% 
   summarise(across(where(is.numeric), ~ sum(.x))) %>% 
   mutate(total_xG_ahead = (total_xG_ahead_1 + total_xG_ahead_2 + total_xG_ahead_N),
-          xGpMA_total = total_xG_ahead/total_time_ahead,
+        xGpMA_total = total_xG_ahead/total_time_ahead,
          xGpMA_1_ahead = total_xG_ahead_1 / `1_goal_lead`,
          xGpMA_2_ahead = total_xG_ahead_2 / `2_goal_lead`,
          xGpMA_n_ahead = case_when(n_goal_lead > 0 ~ total_xG_ahead_N / n_goal_lead,
                                    TRUE ~ 0)) %>% 
   arrange(desc(xGpMA_n_ahead)) %>% 
-  select(-(match_id))
+  select(-(match_id))%>% 
+  left_join(top4, by = c("competition", "team", "season")) %>% distinct()
 
 rlnt_all_by_team_season %>% 
   ungroup() %>% 
-  # filter(competition == "Premier League") %>% 
+  filter(!is.na(top4)) %>% 
   select(team, season, total_xG_ahead_N, n_goal_lead, xGpMA_n_ahead) %>% 
   arrange(desc(n_goal_lead)) %>% 
   filter(n_goal_lead >= quantile(n_goal_lead, 0.85)) %>% 
@@ -270,33 +271,56 @@ rlnt_all_by_team_season %>%
   row_spec(row = 0, background = "#2B2326", color = textcol) %>% 
   row_spec(row = 1, background = "#8F1D16", color = textcol, italic = T, bold = T)
 
-season_clean %>% select(competition, season, match_id, minute, h_team, a_team, h_goals, a_goals) %>% 
+team_gd <- season_clean %>% select(competition, season, match_id, minute, h_team, a_team, h_goals, a_goals) %>% 
   group_by(match_id) %>%
   filter(minute == max(minute)) %>% 
-  mutate(GD = abs(h_goals - a_goals),
-         diff_2_plus = ifelse(GD > 2, 1, 0),
-         diff_3_plus = ifelse(GD > 3, 1, 0),
-         diff_4_plus = ifelse(GD > 4, 1, 0),
-         diff_5_plus = ifelse(GD > 5, 1, 0)) %>% 
-  filter(diff_2_plus == 1) %>% 
-  group_by(competition, season) %>% 
+  distinct() %>% 
+  mutate(GD = h_goals - a_goals,
+         team = ifelse(GD > 0, h_team, ifelse(GD < 0,a_team,"draw")),
+         win_by_2 = ifelse(abs(GD) == 2, 1, 0),
+         win_by_3 = ifelse(abs(GD) == 3, 1, 0),
+         win_by_4 = ifelse(abs(GD) == 4, 1, 0),
+         win_by_5_plus = ifelse(abs(GD) >= 5, 1, 0)) %>% 
+  filter(GD != 0) %>% 
+  group_by(team, season) %>% 
   summarise(across(where(is.numeric), ~ sum(.x))) %>% 
-  arrange(desc(diff_5_plus)) %>% 
-  select(competition, season, diff_2_plus, diff_3_plus, diff_3_plus, diff_4_plus, diff_5_plus) %>% 
-  mutate(competition = case_when(competition == "bundesliga" ~ "Bundesliga",
-                               competition == "epl" ~ "Premier League",
-                               competition == "seriea" ~ "Serie A",
-                               competition == "laliga" ~ "La Liga",
-                               competition == "ligue1" ~ "Ligue 1"),
-       season = case_when(season == 2016 ~ "2016/17",
+  arrange(desc(win_by_5_plus), desc(win_by_4),desc(win_by_3),desc(win_by_2)) %>% 
+  select(team, season, win_by_2, win_by_3, win_by_4, win_by_5_plus) %>% 
+  mutate(season = case_when(season == 2016 ~ "2016/17",
                           season == 2017 ~ "2017/18",
                           season == 2018 ~ "2018/19",
                           season == 2019 ~ "2019/20",
                           season == 2020 ~ "2020/21",
                           season == 2021 ~ "2021/22")) %>% 
-  filter(season != "2021/2022") %>% 
-  print(n = 25)
-  
+  filter(season != "2021/2022")
+
+season_gd <- season_clean %>% select(competition, season, match_id, minute, h_team, a_team, h_goals, a_goals) %>% 
+  group_by(match_id) %>%
+  filter(minute == max(minute)) %>% 
+  distinct() %>% 
+  mutate(GD = h_goals - a_goals,
+         team = ifelse(GD > 0, h_team, ifelse(GD < 0,a_team,"draw")),
+         win_by_2 = ifelse(abs(GD) == 2, 1, 0),
+         win_by_3 = ifelse(abs(GD) == 3, 1, 0),
+         win_by_4 = ifelse(abs(GD) == 4, 1, 0),
+         win_by_5_plus = ifelse(abs(GD) >= 5, 1, 0)) %>% 
+  filter(GD != 0) %>% 
+  group_by(competition, season) %>% 
+  summarise(across(where(is.numeric), ~ sum(.x))) %>% 
+  arrange(desc(win_by_5_plus), desc(win_by_4),desc(win_by_3),desc(win_by_2)) %>% 
+  select(competition, season, win_by_2, win_by_3, win_by_4, win_by_5_plus) %>% 
+  mutate(competition = case_when(competition == "bundesliga" ~ "Bundesliga",
+                                 competition == "epl" ~ "Premier League",
+                                 competition == "seriea" ~ "Serie A",
+                                 competition == "laliga" ~ "La Liga",
+                                 competition == "ligue1" ~ "Ligue 1"),
+         season = case_when(season == 2016 ~ "2016/17",
+                            season == 2017 ~ "2017/18",
+                            season == 2018 ~ "2018/19",
+                            season == 2019 ~ "2019/20",
+                            season == 2020 ~ "2020/21",
+                            season == 2021 ~ "2021/22")) %>% 
+  filter(season != "2021/2022")
 
 
 rlnt_all_by_team <- rlnt_all %>% 
@@ -426,7 +450,7 @@ rlnt_all_by_team_season %>%
 
 
 #xG Ahead Breakdown ----
-rlnt_bar <- rlnt_all_by_team %>% select(1, 3, 4, 5, 10) %>% arrange(desc(total_xG_ahead)) %>% 
+rlnt_bar <- rlnt_all_by_team %>% select(1, 3, 4, 5, 13) %>% arrange(desc(total_xG_ahead)) %>% 
   filter(total_xG > median(total_xG)) %>% 
   mutate(ahead_percentage = total_xG_ahead * 100/total_xG,
          level_percentage = total_xG_level * 100/total_xG,
@@ -434,9 +458,9 @@ rlnt_bar <- rlnt_all_by_team %>% select(1, 3, 4, 5, 10) %>% arrange(desc(total_x
   select(1,6:8) %>% 
   arrange(desc(ahead_percentage)) %>% 
   pivot_longer(-team, names_to = "State", values_to = "xG_percentage") %>%
-  mutate(State = factor(State, levels = c("ahead_percentage", "level_percentage", "behind_percentage")))
+  mutate(State = factor(State, levels = rev(c("ahead_percentage", "level_percentage", "behind_percentage"))))
 
-team_order <- rlnt_all_by_team %>% select(1, 3, 4, 5, 10) %>% arrange(desc(total_xG_ahead)) %>% 
+team_order <- rlnt_all_by_team %>% select(1, 3, 4, 5, 13) %>% arrange(desc(total_xG_ahead)) %>% 
   filter(total_xG > median(total_xG)) %>% 
   mutate(ahead_percentage = total_xG_ahead * 100/total_xG,
          level_percentage = total_xG_level * 100/total_xG,
@@ -449,7 +473,7 @@ rlnt_bar_plot <- rlnt_bar %>%
   ggplot(aes(x = team , y = xG_percentage, fill = State)) +
   geom_bar(colour =  bgcol, stat = "identity") +
   scale_y_continuous(expand = c(0,0)) + 
-  scale_fill_manual(values = c("#D03028","#3561B0", "#3CA23A"),labels = c("Ahead", "Level", "Behind")) + 
+  scale_fill_manual(values = rev(c("#D03028","#3561B0", "#3CA23A")),labels = rev(c("Ahead", "Level", "Behind"))) + 
   scale_x_discrete(limits = rev(team_order[1:20])) +
   coord_flip() +
   theme(plot.title = element_text(colour = textcol, family = titlefont, size = 40, face = "bold"),
@@ -470,7 +494,7 @@ rlnt_bar_plot <- rlnt_bar %>%
         plot.caption = element_text(family = plotfont, colour = textcol, size = 15, hjust = 0)) + 
   labs(title = "Relentlessness",
        subtitle = "Percentage xG per state in Europe's top 5 leagues (2016/17- 2020/21)",
-       caption = "1. All data from UnderStat \n2. Only considered the first half of the 2021/2022 season",
+       caption = "1. All data from UnderStat",
        y = "Percentage xG per State")
 
 rlnt_bar_plot
