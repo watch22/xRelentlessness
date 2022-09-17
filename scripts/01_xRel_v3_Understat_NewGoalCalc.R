@@ -28,10 +28,10 @@ seriea_1819_rlnt <- seriea_1819_clean %>%
                             TRUE ~ 0),
          sum_goal_h = case_when(is.na(lag(cumsum(goal_h))) ~ 0,
                                 row_number() == max(row_number()) ~ cumsum(goal_h),      
-                                TRUE ~ lag(cumsum(goal_h))),
+                                TRUE ~ cumsum(goal_h)),
          sum_goal_a = case_when(is.na(lag(cumsum(goal_a))) ~ 0,
                                 row_number() == max(row_number()) ~ cumsum(goal_a),      
-                                TRUE ~ lag(cumsum(goal_a))),
+                                TRUE ~ cumsum(goal_a)),
          #calculate various xg --
          xg_h = ifelse(h_a == "h", round(xG,3), 0),
          xg_a = ifelse(h_a == "a", round(xG,3), 0),
@@ -93,6 +93,14 @@ rlnt_all_1819_by_team %>%
   #rowwise %>% 
   #mutate(check = sum(c_across(4:8))) %>% 
   group_by(team) %>% 
+  summarise(across(where(is.numeric), ~ sum(.x)))
+
+
+rlnt_all_1819_by_team %>% 
+  select(-1) %>% 
+  #rowwise %>% 
+  #mutate(check = sum(c_across(4:8))) %>% 
+  group_by(team) %>% 
   summarise(across(where(is.numeric), ~ sum(.x))) %>% 
   arrange(desc(total_xG)) %>% 
   select(1,4:8,3) %>% 
@@ -108,9 +116,13 @@ rlnt_all_1819_by_team %>%
 #get minutes per game state ----
 seriea_1819_rlnt_min <- seriea_1819_rlnt %>%
   select(1:3,6,10:14) %>% 
+  # FIX DUPLICATE MINUTES
+  mutate(minute = c(minute[-n()], max(minute) + 1))
+
+
+seriea_1819_rlnt_min <- seriea_1819_rlnt_min %>% 
   distinct() %>% 
   mutate(
-    # FIX DUPLICATE MINUTES
     #HOME STATE AND MINUTE COUNTER
     state_h = case_when(sum_goal_h == sum_goal_a ~ "level",
                         (goal_h == 1 & lead(sum_goal_h) > lead(sum_goal_a)) | sum_goal_h > sum_goal_a ~ "lead",
@@ -144,20 +156,36 @@ seriea_1819_rlnt_min <- seriea_1819_rlnt %>%
                             state_a == "level" & lag(state_a) == "lead" ~ min_ahead_a - lag(min_ahead_a),
                             TRUE ~ 0))
 
-seriea_1819_rlnt_min %>% select(1:9,10,13,11,14,12,15)
-
-View(seriea_1819_rlnt_min %>% filter(match_id %in% check_matches$match_id))
-
 #get totals
 rlnt_min_totals <- seriea_1819_rlnt_min %>% 
   group_by(match_id, h_team, a_team) %>% 
   summarise(tot_min_ahead_h = sum(lead_time_h),
             tot_min_ahead_a = sum(lead_time_a))
 
-check_matches <- rlnt_min_totals %>% filter(tot_min_ahead_h < 0 | tot_min_ahead_a < 0 | tot_min_ahead_h > 90 | tot_min_ahead_a > 90 )
+#split home and away ----
+rlnt_min_h <- rlnt_min_totals %>% 
+  ungroup() %>% 
+  select(1,2,4)
 
+rlnt_min_a <- rlnt_min_totals %>% 
+  ungroup() %>% 
+  select(1,3,5)
 
+colnames(rlnt_min_h) <- c("match_id", "team", "min_ahead")
+
+colnames(rlnt_min_a) <- c("match_id", "team", "min_ahead")
+
+rlnt_min_all <- rbind(rlnt_min_h, rlnt_min_a)
 
 #2. get xG per minute ahead
+rlnt_all <- left_join(rlnt_all_1819_by_team, rlnt_min_all, by = c("match_id", "team"))
+
+rlnt_all_by_team <- rlnt_all %>% 
+  group_by(team) %>% 
+  summarise(total_xG_ahead = sum(total_xG_ahead_1,total_xG_ahead_2, total_xG_ahead_N),
+            total_min_ahead = sum(min_ahead),
+            xG_per_min_ahead = round((total_xG_ahead / total_min_ahead),3)) %>% 
+  arrange(desc(xG_per_min_ahead))
+  
 #3. replicate for past 5 seasons of top 5 leagues
 

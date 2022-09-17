@@ -235,7 +235,7 @@ plotfont <- "Roboto Condensed"
 titlefont <- "Roboto Slab"
 bgcol <-  "#171516"
 panelcol <- "#f7f7ed"#F1F1EF
-textcol <- "#ECECEC"
+textcol <- "#f7f7ed"#ECECEC
 
 
 #season by season
@@ -287,10 +287,11 @@ rlnt_all_by_team_season %>%
   theme(plot.title = element_text(colour = textcol, family = titlefont, size = 40, face = "bold"),
         plot.subtitle = element_text(colour = textcol, family = titlefont, size = 25, face = "italic"),
         legend.position = "top",
-        legend.background = element_rect(fill = panelcol, colour = bgcol),
-        legend.key = element_rect(fill = panelcol, colour = panelcol),
+        legend.justification = "left",
+        legend.background = element_rect(fill = bgcol, colour = bgcol),
+        legend.key = element_rect(fill = bgcol, colour = bgcol),
         legend.title = element_blank(),
-        legend.text = element_text(family = plotfont, colour = bgcol, size = 15),
+        legend.text = element_text(family = plotfont, colour = textcol, size = 15),
         plot.background = element_rect(fill = bgcol, colour = textcol),
         axis.text = element_text(family = plotfont, colour = textcol, size = 15),
         axis.title.y = element_text(family = plotfont, colour = textcol, size = 20),
@@ -338,12 +339,14 @@ rlnt_bar_plot <- rlnt_bar %>%
   coord_flip() +
   theme(plot.title = element_text(colour = textcol, family = titlefont, size = 40, face = "bold"),
         plot.subtitle = element_text(colour = textcol, family = titlefont, size = 25, face = "italic"),
-        legend.position = "right",
-        legend.background = element_rect(fill = panelcol, colour = bgcol),
-        legend.key = element_rect(fill = panelcol, colour = panelcol),
+        legend.position = "top",
+        legend.justification='left',
+        legend.background = element_rect(fill = bgcol, colour = bgcol),
+        legend.key = element_rect(fill = bgcol, colour = bgcol),
         legend.title = element_blank(),
-        legend.text = element_text(family = plotfont, colour = bgcol, size = 15),
+        legend.text = element_text(family = plotfont, colour = textcol, size = 15),
         plot.background = element_rect(fill = bgcol, colour = textcol),
+        plot.margin = margin(0,20,0,10),
         axis.text = element_text(family = plotfont, colour = textcol, size = 15),
         axis.title.x = element_text(family = plotfont, colour = textcol, size = 20),
         axis.title.y = element_blank(),
@@ -351,7 +354,7 @@ rlnt_bar_plot <- rlnt_bar %>%
         panel.background = element_rect(fill = panelcol),
         plot.caption = element_text(family = plotfont, colour = textcol, size = 15, hjust = 0)) + 
   labs(title = "Relentlessness",
-       subtitle = "Percentage xG per state in Europe's top 5 leagues (2017 - 2022)",
+       subtitle = "Percentage xG per state in Europe's top 5 leagues (2016/17- 2020/21)",
        caption = "1. All data from UnderStat \n2. Only considered the first half of the 2021/2022 season",
        y = "Percentage xG per State")
 
