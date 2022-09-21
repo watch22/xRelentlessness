@@ -1,4 +1,4 @@
-pacman::p_load(tidyverse, zoo, here, extrafont, knitr, kableExtra)
+pacman::p_load(tidyverse, zoo, here, extrafont, knitr, kableExtra, ggrepel, ggforce)
 
 #Import Understat shot data for top 5 leagues between 2016/2017 & 2020/2021
 match_df <- list.files(path = here::here("data"), full.names = T, recursive = T)
@@ -13,6 +13,16 @@ season_clean <- season_df %>%
   mutate(competition = str_split(basename(competition),"_")) %>% 
   rowwise() %>% 
   mutate(competition = competition[[1]][1]) %>% 
+  mutate(competition = case_when(competition == "bundesliga" ~ "Bundesliga",
+                                 competition == "epl" ~ "Premier League",
+                                 competition == "seriea" ~ "Serie A",
+                                 competition == "laliga" ~ "La Liga",
+                                 competition == "ligue1" ~ "Ligue 1"),
+         season = case_when(season == 2016 ~ "2016/17",
+                            season == 2017 ~ "2017/18",
+                            season == 2018 ~ "2018/19",
+                            season == 2019 ~ "2019/20",
+                            season == 2020 ~ "2020/21")) %>% 
   arrange(date, match_id, minute) %>% 
   select(competition, season, date, match_id, minute, h_team, a_team, h_a, everything()) %>% 
   select(-c(X, Y, id, player_id))
@@ -86,14 +96,9 @@ colnames(rlnt_xg_h) <- c("competition", "season", "match_id", "team", "goals", "
 
 colnames(rlnt_xg_a) <- c("competition", "season", "match_id", "team", "goals", "total_xG","total_xG_behind", "total_xG_level", "total_xG_ahead_1", "total_xG_ahead_2", "total_xG_ahead_N")
   
-rlnt_xg_all <- rbind(rlnt_xg_h, rlnt_xg_a)
+rlnt_xg_all <- rbind(rlnt_xg_h, rlnt_xg_a) %>% 
+  left_join(league_tables %>% select(2:4), by = c("team", "season"))
 
-rlnt_xg_all %>% 
-  group_by(competition, season, team) %>% 
-  summarise(across(where(is.numeric), ~ sum(.x))) %>% 
-  mutate(total_xG_ahead = total_xG_ahead_1 + total_xG_ahead_2 + total_xG_ahead_N) %>% 
-  select(-c(match_id)) %>% 
-  arrange(desc(total_xG_ahead_N))
 
 #2. GET MINUTES PER STATE ----
 rlnt_min <- rlnt_xg %>%
@@ -219,25 +224,12 @@ colnames(rlnt_min_a) <- c("competition","season","match_id", "team", "1_goal_lea
 rlnt_min_all <- rbind(rlnt_min_h, rlnt_min_a)
 
 #3. xG PER GAME STATE (WHILE AHEAD) ------
-rlnt_all <- left_join(rlnt_xg_all, select(rlnt_min_all, c(3:8)), by = c("match_id", "team")) %>% 
-  ungroup() %>% 
-  mutate(competition = case_when(competition == "bundesliga" ~ "Bundesliga",
-                                 competition == "epl" ~ "Premier League",
-                                 competition == "seriea" ~ "Serie A",
-                                 competition == "laliga" ~ "La Liga",
-                                 competition == "ligue1" ~ "Ligue 1"),
-         season = case_when(season == 2016 ~ "2016/17",
-                            season == 2017 ~ "2017/18",
-                            season == 2018 ~ "2018/19",
-                            season == 2019 ~ "2019/20",
-                            season == 2020 ~ "2020/21",
-                            season == 2021 ~ "2021/22")) %>% 
-  filter(season != "2021/2022")
+rlnt_all <- left_join(rlnt_xg_all, select(rlnt_min_all, c(3:8)), by = c("match_id", "team"))
 
 
 #4. ANALYSIS - BY TEAM/SEASON/COMPETITION ----
 rlnt_all_by_team_season <- rlnt_all %>% 
-  group_by(competition, team, season) %>% 
+  group_by(competition, team, season, Pos) %>% 
   summarise(across(where(is.numeric), ~ sum(.x))) %>% 
   mutate(total_xG_ahead = (total_xG_ahead_1 + total_xG_ahead_2 + total_xG_ahead_N),
         xGpMA_total = total_xG_ahead/total_time_ahead,
@@ -246,83 +238,11 @@ rlnt_all_by_team_season <- rlnt_all %>%
          xGpMA_n_ahead = case_when(n_goal_lead > 0 ~ total_xG_ahead_N / n_goal_lead,
                                    TRUE ~ 0)) %>% 
   arrange(desc(xGpMA_n_ahead)) %>% 
-  select(-(match_id))%>% 
-  left_join(top4, by = c("competition", "team", "season")) %>% distinct()
-
-rlnt_all_by_team_season %>% 
-  ungroup() %>% 
-  filter(!is.na(top4)) %>% 
-  select(team, season, total_xG_ahead_N, n_goal_lead, xGpMA_n_ahead) %>% 
-  arrange(desc(n_goal_lead)) %>% 
-  filter(n_goal_lead >= quantile(n_goal_lead, 0.85)) %>% 
-  arrange(desc(xGpMA_n_ahead)) %>% 
-  rename(Team = team,
-         Season = season,
-         `xG (2+ Goal Lead)` = total_xG_ahead_N,
-         `Time (mins)` = n_goal_lead,
-         `xGpMA (2+ Goal Lead)`= xGpMA_n_ahead) %>% 
-  head(10) %>% 
-  kable() %>% 
-  kable_styling(full_width = F, 
-                position = "center",
-                html_font = plotfont,
-                stripe_color = bgcol) %>% 
-  column_spec(column = 1:5, background = bgcol, color = textcol) %>% 
-  row_spec(row = 0, background = "#2B2326", color = textcol) %>% 
-  row_spec(row = 1, background = "#8F1D16", color = textcol, italic = T, bold = T)
-
-team_gd <- season_clean %>% select(competition, season, match_id, minute, h_team, a_team, h_goals, a_goals) %>% 
-  group_by(match_id) %>%
-  filter(minute == max(minute)) %>% 
+  select(-(match_id)) %>% 
+  left_join(league_tables %>% select(competition, season, team, M), by = c("competition", "season", "team"))%>% 
   distinct() %>% 
-  mutate(GD = h_goals - a_goals,
-         team = ifelse(GD > 0, h_team, ifelse(GD < 0,a_team,"draw")),
-         win_by_2 = ifelse(abs(GD) == 2, 1, 0),
-         win_by_3 = ifelse(abs(GD) == 3, 1, 0),
-         win_by_4 = ifelse(abs(GD) == 4, 1, 0),
-         win_by_5_plus = ifelse(abs(GD) >= 5, 1, 0)) %>% 
-  filter(GD != 0) %>% 
-  group_by(team, season) %>% 
-  summarise(across(where(is.numeric), ~ sum(.x))) %>% 
-  arrange(desc(win_by_5_plus), desc(win_by_4),desc(win_by_3),desc(win_by_2)) %>% 
-  select(team, season, win_by_2, win_by_3, win_by_4, win_by_5_plus) %>% 
-  mutate(season = case_when(season == 2016 ~ "2016/17",
-                          season == 2017 ~ "2017/18",
-                          season == 2018 ~ "2018/19",
-                          season == 2019 ~ "2019/20",
-                          season == 2020 ~ "2020/21",
-                          season == 2021 ~ "2021/22")) %>% 
-  filter(season != "2021/2022")
-
-season_gd <- season_clean %>% select(competition, season, match_id, minute, h_team, a_team, h_goals, a_goals) %>% 
-  group_by(match_id) %>%
-  filter(minute == max(minute)) %>% 
-  distinct() %>% 
-  mutate(GD = h_goals - a_goals,
-         team = ifelse(GD > 0, h_team, ifelse(GD < 0,a_team,"draw")),
-         win_by_2 = ifelse(abs(GD) == 2, 1, 0),
-         win_by_3 = ifelse(abs(GD) == 3, 1, 0),
-         win_by_4 = ifelse(abs(GD) == 4, 1, 0),
-         win_by_5_plus = ifelse(abs(GD) >= 5, 1, 0)) %>% 
-  filter(GD != 0) %>% 
-  group_by(competition, season) %>% 
-  summarise(across(where(is.numeric), ~ sum(.x))) %>% 
-  arrange(desc(win_by_5_plus), desc(win_by_4),desc(win_by_3),desc(win_by_2)) %>% 
-  select(competition, season, win_by_2, win_by_3, win_by_4, win_by_5_plus) %>% 
-  mutate(competition = case_when(competition == "bundesliga" ~ "Bundesliga",
-                                 competition == "epl" ~ "Premier League",
-                                 competition == "seriea" ~ "Serie A",
-                                 competition == "laliga" ~ "La Liga",
-                                 competition == "ligue1" ~ "Ligue 1"),
-         season = case_when(season == 2016 ~ "2016/17",
-                            season == 2017 ~ "2017/18",
-                            season == 2018 ~ "2018/19",
-                            season == 2019 ~ "2019/20",
-                            season == 2020 ~ "2020/21",
-                            season == 2021 ~ "2021/22")) %>% 
-  filter(season != "2021/2022")
-
-
+  mutate(min_ahead_per_game = round(total_time_ahead/M,1))
+    
 rlnt_all_by_team <- rlnt_all %>% 
   group_by(team) %>% 
   summarise(across(where(is.numeric), ~ sum(.x))) %>% 
@@ -348,41 +268,12 @@ rlnt_all_by_competition <-  rlnt_all %>%
   select(-c(match_id))
   
 
-#PLOTS -----
-#set colours & aesthetics----
-season_shapes <- c("2016/17"= "triangle filled",
-                   "2017/18" = "triangle down filled",
-                   "2018/19" = "circle filled",
-                   "2019/20" = "square filled",
-                   "2020/21" = "diamond filled")
-competition_colours<- c("Bundesliga" = "#D03028",
-                         "Premier League"= "#3561B0",
-                         "Serie A" = "#F9AD41",
-                         "Ligue 1" = "#1C0368",
-                         "La Liga" = "#3CA23A")
-season_colours <- c("2016/17"= "#3CA23A",
-                    "2017/18" = "#D03028",
-                    "2018/19" = "#3561B0",
-                    "2019/20" = "#F9AD41",
-                    "2020/21" = "#1C0368")
-competition_shapes <- c("Bundesliga" = "triangle down filled",
-                        "Premier League"= "circle filled",
-                        "Serie A" = "square filled",
-                        "Ligue 1" = "diamond filled",
-                        "La Liga" = "triangle filled")
-plotfont <- "Roboto Condensed"
-titlefont <- "Roboto Slab"
-bgcol <-  "#171516"
-panelcol <- "#f7f7ed"#F1F1EF
-textcol <- "#f7f7ed"#ECECEC
-
-
 #season by season
 rlnt_all_by_team_season %>% 
   # filter(min_ahead > 1500 & total_xG_ahead > 40) %>% 
-  ggplot(aes(x = n_goal_lead, y = total_xG_ahead_N, label = team, fill = competition, colour = competition, label = team)) + 
+  ggplot(aes(x = total_time_ahead, y = total_xG_ahead, fill = competition, colour = competition, label = team)) + 
   geom_point(size = 4) + 
-  scale_fill_manual(values = competition_colours) +
+  scale_fill_manual(values = competition_fills) +
   scale_colour_manual(values = competition_colours) +
   #scale_shape_manual(values = competition_shapes) + 
   geom_text_repel(colour = bgcol,
@@ -473,29 +364,45 @@ rlnt_bar_plot <- rlnt_bar %>%
   ggplot(aes(x = team , y = xG_percentage, fill = State)) +
   geom_bar(colour =  bgcol, stat = "identity") +
   scale_y_continuous(expand = c(0,0)) + 
-  scale_fill_manual(values = rev(c("#D03028","#3561B0", "#3CA23A")),labels = rev(c("Ahead", "Level", "Behind"))) + 
+  scale_fill_manual(values = c("#D03028","#3561B0", "#3CA23A"), labels = c("Behind", "Level", "Ahead")) + 
+  guides(fill = guide_legend(reverse = TRUE)) +
   scale_x_discrete(limits = rev(team_order[1:20])) +
   coord_flip() +
-  theme(plot.title = element_text(colour = textcol, family = titlefont, size = 40, face = "bold"),
-        plot.subtitle = element_text(colour = textcol, family = titlefont, size = 25, face = "italic"),
+  theme(plot.title = element_text(colour = textcol, family = titlefont, size = 40, face = "bold", hjust = 0),
+        plot.subtitle = element_text(colour = textcol, family = titlefont, size = 20),
         legend.position = "top",
-        legend.justification='left',
+        legend.justification = 'left',
         legend.background = element_rect(fill = bgcol, colour = bgcol),
         legend.key = element_rect(fill = bgcol, colour = bgcol),
         legend.title = element_blank(),
         legend.text = element_text(family = plotfont, colour = textcol, size = 15),
         plot.background = element_rect(fill = bgcol, colour = textcol),
-        plot.margin = margin(0,20,0,10),
+        plot.margin = margin(10,20,10,10),
         axis.text = element_text(family = plotfont, colour = textcol, size = 15),
-        axis.title.x = element_text(family = plotfont, colour = textcol, size = 20),
+        axis.title.x = element_blank(),
         axis.title.y = element_blank(),
         axis.line = element_line(colour = textcol),
         panel.background = element_rect(fill = panelcol),
-        plot.caption = element_text(family = plotfont, colour = textcol, size = 15, hjust = 0)) + 
+        plot.caption = element_text(family = plotfont, colour = textcol, size = 15, hjust = 1)) + 
   labs(title = "Relentlessness",
-       subtitle = "Percentage xG per state in Europe's top 5 leagues (2016/17- 2020/21)",
-       caption = "1. All data from UnderStat",
-       y = "Percentage xG per State")
+       subtitle = "Percentage xG per game state in Europe's top 5 leagues (2016/17- 2020/21)",
+       caption = "Data courtesy of UnderStat")
 
 rlnt_bar_plot
 
+ggsave(plot = rlnt_bar_plot,
+       filename = here::here("outputs","plots","xG breakdown_state.png"),
+       dpi = 600, scale = 2, width = 15, height = 10, units = "cm")
+
+#add W22 logo
+rlnt_bar_plot_logo <- add_logo(
+  plot_path = here("outputs","plots","xG breakdown_state.png"),
+  logo_path = here("resources/WATCH22_CIRCLE.png"),
+  logo_position = "top left",
+  logo_scale = 19)
+
+rlnt_bar_plot_logo
+
+magick::image_write(
+  image = rlnt_bar_plot_logo, 
+  path = here("outputs","plots","xg_state_breakdown_logo.png"))

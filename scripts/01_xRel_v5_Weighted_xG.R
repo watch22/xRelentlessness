@@ -1,38 +1,9 @@
-pacman::p_load(tidyverse, zoo, here, extrafont, knitr, kableExtra, ggrepel, gridExtra)
 
-#Import Understat shot data for top 5 leagues between 2016/2017 & 2020/2021
-match_df <- list.files(path = here::here("data"), full.names = T, recursive = T)
-season_df <- tibble(File = match_df) %>%
-  extract(File, "Site", remove = FALSE) %>%
-  mutate(Data = lapply(File, read_csv)) %>%
-  unnest(Data)
-
-#clean up data ----
-season_clean <- season_df %>% 
-  rename(competition = File) %>% 
-  mutate(competition = str_split(basename(competition),"_")) %>% 
-  rowwise() %>% 
-  mutate(competition = competition[[1]][1]) %>% 
-  arrange(date, match_id, minute) %>% 
-  select(competition, season, date, match_id, minute, h_team, a_team, h_a, everything()) %>% 
-  select(-c(X, Y, id, player_id))
-
-#create table with top 4 teams----
-top4 <- tibble(competition = c(rep("Bundesliga",20), rep("La Liga",20), rep("Ligue 1",20), rep("Premier League",20),rep("Serie A", 20)), season = rep(sort(rep(names(season_colours),4)),5), team = c("Bayern Munich", "RasenBallsport Leipzig", "Borussia Dortmund","Hoffenheim","Bayern Munich","Schalke 04", "Hoffenheim","Borussia Dortmund","Bayern Munich", "RasenBallsport Leipzig","Borussia Dortmund","Bayer Leverkusen", "Bayern Munich", "RasenBallsport Leipzig","Borussia Dortmund","Borussia M.Gladbach", "Bayern Munich", "RasenBallsport Leipzig", "Borussia Dortmund", "Wolfsburg", "Real Madrid",  "Barcelona", "Atletico Madrid","Sevilla","Real Madrid","Barcelona","Atletico Madrid", "Valencia", "Real Madrid", "Barcelona","Atletico Madrid","Valencia","Real Madrid","Barcelona", "Atletico Madrid","Sevilla",  "Real Madrid","Barcelona","Atletico Madrid", "Sevilla","Monaco", "Paris Saint Germain","Nice", "Lyon","Monaco","Paris Saint Germain","Marseille","Lyon",
-                                                                                                                                                                                                      "Paris Saint Germain", "Lyon", "Lille","Saint-Etienne",
-                                                                                                                                                                                                      "Paris Saint Germain", "Lille", "Marseille", "Rennes", 
-                                                                                                                                                                                                      "Paris Saint Germain", "Lille", "Monaco", "Lyon",
-                                                                                                                                                                                                      "Chelsea", "Tottenham", "Manchester City", "Liverpool",
-                                                                                                                                                                                                      "Tottenham", "Manchester City", "Liverpool","Manchester United",
-                                                                                                                                                                                                      "Chelsea", "Tottenham", "Manchester City", "Liverpool",
-                                                                                                                                                                                                      "Chelsea", "Manchester City", "Liverpool","Manchester United",
-                                                                                                                                                                                                      "Chelsea", "Manchester City", "Liverpool","Manchester United",
-                                                                                                                                                                                                      "Juventus", "Napoli", "Roma", "Atalanta",
-                                                                                                                                                                                                      "Juventus", "Napoli", "Roma", "Inter",
-                                                                                                                                                                                                      "Juventus", "Napoli", "Atalanta", "Inter",
-                                                                                                                                                                                                      "Juventus", "Lazio", "Atalanta", "Inter",
-                                                                                                                                                                                                      "Juventus", "AC Milan", "Atalanta", "Inter"), top4 = rep(1,100))
-
+#Import league tables----
+league_tables <- read_csv(file = here::here("data", "Europe Top 5 - League Tables 2016 - 2022.csv")) %>% 
+  rename(competition = Competition,
+         season = Season,
+         team = Team)
 
 #GET xG PER GAME STATE ----
 wt_rlnt_xg <- season_clean %>% 
@@ -106,7 +77,8 @@ colnames(wt_rlnt_xg_h) <- c("competition", "season", "match_id", "team", "goals"
 
 colnames(wt_rlnt_xg_a) <- c("competition", "season", "match_id", "team", "goals", "total_xG", "total_xG_behind", "total_xG_level","total_xG_ahead", "weighted_xG_ahead", "percentage_diff_ahead")
   
-wt_rlnt_xg_all <- rbind(wt_rlnt_xg_h, wt_rlnt_xg_a)
+wt_rlnt_xg_all <- rbind(wt_rlnt_xg_h, wt_rlnt_xg_a)%>% 
+  left_join(league_tables %>% select(2:4), by = c("team", "season"))
 
 wt_rlnt_xg_all %>% 
   group_by(competition, season, team) %>% 
@@ -188,81 +160,36 @@ colnames(wt_rlnt_min_a) <- c("competition","season","match_id", "team", "min_ahe
 wt_rlnt_min_all <- rbind(wt_rlnt_min_h, wt_rlnt_min_a)
 
 #3. xG PER GAME STATE (WHILE AHEAD) ------
-wt_rlnt_all <- left_join(wt_rlnt_xg_all, select(wt_rlnt_min_all,c(3:5)), by = c("match_id", "team")) %>% 
-  ungroup() %>% 
-  mutate(competition = case_when(competition == "bundesliga" ~ "Bundesliga",
-                                 competition == "epl" ~ "Premier League",
-                                 competition == "seriea" ~ "Serie A",
-                                 competition == "laliga" ~ "La Liga",
-                                 competition == "ligue1" ~ "Ligue 1"),
-         season = case_when(season == 2016 ~ "2016/17",
-                            season == 2017 ~ "2017/18",
-                            season == 2018 ~ "2018/19",
-                            season == 2019 ~ "2019/20",
-                            season == 2020 ~ "2020/21",
-                            season == 2021 ~ "2021/22")) %>% 
-  filter(season != "2021/2022")
-
+wt_rlnt_all <- left_join(wt_rlnt_xg_all, select(wt_rlnt_min_all,c(3:5)), by = c("match_id", "team"))
 
 #4. ANALYSIS - BY TEAM/SEASON/COMPETITION ----
 wt_rlnt_all_by_team_season <- wt_rlnt_all %>% 
-  group_by(competition, team, season) %>% 
+  group_by(competition, team, season, Pos) %>% 
   summarise(across(where(is.numeric), ~ sum(.x))) %>% 
   mutate(xGpMA = round(total_xG_ahead/min_ahead,4),
          XGpMA_wt = round(weighted_xG_ahead/min_ahead,4),
          percent_diff = (signif((XGpMA_wt-xGpMA)/xGpMA,3)*100)) %>% 
   arrange(desc(percent_diff), desc(XGpMA_wt)) %>% 
-  select(1:3,9,10,12:15) %>% 
-  left_join(top4, by = c("competition", "team", "season")) %>% distinct()
+  select(1:4,10,11,13:16) %>% 
+  left_join(league_tables %>% select(competition, season, team, M), by = c("competition", "season", "team")) %>% 
+  distinct() %>% 
+  mutate(min_ahead_per_game = round(min_ahead/M,1),
+         normalised_xGpMA = round(total_xG_ahead/min_ahead_per_game,2),
+         normalised_xGpMA_wt = round(weighted_xG_ahead/min_ahead_per_game,2),
+         normalised_percent_diff = (signif((normalised_xGpMA_wt-normalised_xGpMA)/normalised_xGpMA,3)*100))
 
-  wt_rlnt_all_by_team_season %>% 
-  ungroup() %>% 
-  filter(!is.na(top4)) %>% 
-  rename(Team = team,
-         Season = season,
-         `xGpMA (Weighted)` = XGpMA_wt,
-         `% diff` = percent_diff) %>% 
-  select(-competition) %>% 
-  arrange(`% diff`) %>% 
-  head(10) %>% 
-  select(1,2,6:8) %>% 
-  kable() %>% 
-  kable_styling(full_width = T, 
-                position = "center",
-                html_font = plotfont,
-                stripe_color = bgcol) %>% 
-  column_spec(column = 1:5, background = bgcol, color = textcol) %>% 
-  row_spec(row = 0, background = bgcol, color = textcol) %>% 
-  row_spec(row = 1, background = "#165d8f", color = textcol, italic = T, bold = T) #8F1D16
-
-wt_rlnt_all_by_team_season %>% 
-  ungroup() %>% 
-  # filter(competition == "Premier League") %>%
-  filter(min_ahead >= quantile(min_ahead, 0.75)) %>% 
-  rename(Team = team,
-         Season = season,
-         `xGpMA (Weighted)` = XGpMA_wt,
-         `% diff` = percent_diff) %>% 
-  select(-competition) %>% 
-  arrange(`% diff`) %>% 
-  head(10) %>% 
-  select(1,2,6:8) %>% 
-  kable() %>% 
-  kable_styling(full_width = F, 
-                position = "center",
-                html_font = plotfont,
-                stripe_color = bgcol) %>% 
-  column_spec(column = 1:5, background = bgcol, color = textcol) %>% 
-  row_spec(row = 0, background = "#2B2326", color = textcol) %>% 
-  row_spec(row = 1, background = "#8F1D16", color = textcol, italic = T, bold = T)
-
-
-wt_rlnt_all_by_team <- wt_rlnt_all %>% 
+league_tables_summary <- league_tables %>% 
   group_by(team) %>% 
-  summarise(across(where(is.numeric), ~ sum(.x))) %>% 
-  mutate(xGpMA = round(total_xG_ahead/min_ahead,4),
-         XGpMA_wt = round(weighted_xG_ahead/min_ahead,4),
-         percent_diff = (signif((XGpMA_wt-xGpMA)/xGpMA,3)*100))
+  summarise(M = sum(M))
+
+wt_rlnt_all_by_team <- wt_rlnt_all_by_team_season %>% 
+  group_by(team) %>% 
+  summarise(`Avg xGpMA` = mean(normalised_xGpMA),
+            `Avg Weighted xGpMA` = mean(normalised_xGpMA_wt),
+            `Time Ahead per Game (mins)` = mean(min_ahead_per_game)) %>% 
+  mutate(`% diff` = 100 * signif((`Avg Weighted xGpMA` - `Avg xGpMA`)/`Avg xGpMA`,3)) %>% 
+  rename(Team = team) %>% 
+  arrange(desc(`% diff`))
 
 wt_rlnt_all_by_team %>% 
   arrange(desc(min_ahead)) %>% 
@@ -291,118 +218,3 @@ wt_rlnt_all_by_comp_season <-  wt_rlnt_all %>%
          percent_diff = (signif((XGpMA_wt-xGpMA)/xGpMA,3)*100)) %>% 
   arrange(desc(percent_diff), desc(XGpMA_wt)) %>% 
   select(1:2,12:14)
-
-
-#5. PLOTS -----
-#set colours & aesthetics----
-season_shapes <- c("2016/17"= "triangle filled",
-                   "2017/18" = "triangle down filled",
-                   "2018/19" = "circle filled",
-                   "2019/20" = "square filled",
-                   "2020/21" = "diamond filled")
-competition_colours<- c("Bundesliga" = "black",
-                         "Premier League"= "white",
-                         "Serie A" = "#002d71",
-                         "Ligue 1" = "#081C3D",#081C3D#D03028
-                         "La Liga" = "#fbec21")
-competition_fills <- c("Bundesliga" = "white",
-                       "Premier League"= "#37003D", #D03028
-                       "Serie A" = "#008fd7",#008fd7 #3561B0
-                       "Ligue 1" = "#CEFB0B",#CEFB0B#3CA23A
-                       "La Liga" = "#D03028")#fbec21#F9AD41#e00c1a
-season_colours <- c("2016/17"= "#3CA23A",
-                    "2017/18" = "#D03028",
-                    "2018/19" = "#3561B0",
-                    "2019/20" = "#F9AD41",
-                    "2020/21" = "#1C0368")
-# competition_shapes <- c("Bundesliga" = "triangle down filled",
-#                         "Premier League"= "circle filled",
-#                         "Serie A" = "square filled",
-#                         "Ligue 1" = "diamond filled",
-#                         "La Liga" = "triangle filled")
-plotfont <- "Roboto Condensed"
-titlefont <- "Roboto Slab"
-textcol <-  "#171516"
-panelcol <- "#f7f7ed"#F1F1EF
-bgcol <- "#f7f7ed"#ECECEC
-
-
-#season by season
-wt_rlnt_all_by_team_season %>% 
-  arrange(desc(min_ahead)) %>% 
-  filter(min_ahead >= quantile(min_ahead,0.75)) %>% 
-  ggplot(aes(x = min_ahead, y = weighted_xG_ahead, fill = competition, colour = competition)) + 
-  geom_point(size = 5, shape = 21) + 
-  scale_fill_manual(values = competition_fills) +
-  scale_colour_manual(values = competition_colours) +
-  #scale_shape_manual(values = competition_shapes) + 
-  geom_text_repel(data = wt_rlnt_all_by_team_season %>% 
-                    arrange(desc(min_ahead)) %>% 
-                    filter(min_ahead >= quantile(min_ahead,0.75)) %>% head(10),
-                  aes(label = paste(team,"-",season)),
-                  colour = bgcol,
-                  force = 10,
-                  family = plotfont)+
-  theme(plot.title = element_text(colour = textcol, family = titlefont, size = 40, face = "bold"),
-        plot.subtitle = element_text(colour = textcol, family = titlefont, size = 25, face = "italic"),
-        legend.position = "top",
-        legend.background = element_rect(fill = panelcol, colour = bgcol),
-        legend.key = element_rect(fill = panelcol, colour = panelcol),
-        legend.title = element_blank(),
-        legend.text = element_text(family = plotfont, colour = bgcol, size = 15),
-        plot.background = element_rect(fill = bgcol, colour = textcol),
-        axis.text = element_text(family = plotfont, colour = textcol, size = 15),
-        axis.title.y = element_text(family = plotfont, colour = textcol, size = 20),
-        axis.title.x = element_text(family = plotfont, colour = textcol, size = 20),
-        axis.line = element_line(colour = textcol),
-        #panel.grid.major.x = element_blank(),
-        #panel.grid.major.y = element_blank(),
-        #panel.grid.minor.x = element_blank(),
-        #panel.grid.minor.y = element_blank(),
-        panel.background = element_rect(fill = panelcol),
-        plot.caption = element_text(family = plotfont, colour = textcol, size = 15, hjust = 0)) + 
-  labs(title = "Relentlessness",
-       subtitle = "Expected Goals (xG) per Minutes Spent in the Lead (or Minutes Ahead)",
-       caption = "1. All data from UnderStat \n2. Only considered teams that have spent at least 180 minutes in the lead \nover the course of a season")
-
-#xG vs xGpMA
-wt_rlnt_all_by_team_season %>% 
-  #filter(min_ahead > 1500 & total_xG_ahead > 40) %>% 
-  ggplot(aes(x = total_xG_ahead, y = xGpMA, label = paste(team,"-",season), fill = competition, colour = competition)) + 
-  geom_point(size = 4) + 
-  scale_fill_manual(values = competition_colours) +
-  scale_colour_manual(values = competition_colours) +
-  #scale_shape_manual(values = competition_shapes) + 
-  geom_text_repel(colour = bgcol,
-                  force = 10,
-                  family = plotfont)+
-  theme(plot.title = element_text(colour = textcol, family = titlefont, size = 40, face = "bold"),
-        plot.subtitle = element_text(colour = textcol, family = titlefont, size = 25, face = "italic"),
-        legend.position = "top",
-        legend.justification = "left",
-        legend.background = element_rect(fill = bgcol, colour = bgcol),
-        legend.key = element_rect(fill = bgcol, colour = bgcol),
-        legend.title = element_blank(),
-        legend.text = element_text(family = plotfont, colour = textcol, size = 15),
-        plot.background = element_rect(fill = bgcol, colour = textcol),
-        axis.text = element_text(family = plotfont, colour = textcol, size = 15),
-        axis.title.y = element_text(family = plotfont, colour = textcol, size = 20),
-        axis.title.x = element_text(family = plotfont, colour = textcol, size = 20),
-        axis.line = element_line(colour = textcol),
-        #panel.grid.major.x = element_blank(),
-        #panel.grid.major.y = element_blank(),
-        #panel.grid.minor.x = element_blank(),
-        #panel.grid.minor.y = element_blank(),
-        panel.background = element_rect(fill = panelcol),
-        plot.caption = element_text(family = plotfont, colour = textcol, size = 15, hjust = 0)) + 
-  labs(title = "Relentlessness",
-       subtitle = "Expected Goals (xG) per Minutes Spent in the Lead (or Minutes Ahead)",
-       caption = "1. All data from UnderStat",
-       x = "xG Ahead" ,
-       y = "xGpMA")
-
-
-
-
-
-
