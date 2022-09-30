@@ -1,6 +1,6 @@
 # Deep Dives: Measuring relentlessness (aka Stop! they’re already dead)
 
-Full article here [Part 1](https://medium.com/@watch22/deep-dives-measuring-relentlessness-aka-stop-theyre-already-dead-part-1-e04fc25627a3)
+Full article here [Part 1](https://medium.com/@watch22/deep-dives-measuring-relentlessness-aka-stop-theyre-already-dead-part-1-e04fc25627a3) / [Part 1.5](https://medium.com/@watch22/deep-dives-measuring-relentlessness-aka-stop-theyre-already-dead-part-1-5-2021-22-data-743dec8bb377)
 
 My attempt at defining a metric that describes "relentlessness", basically when a team “opens the floodgates” on their opponent. Those twenty minutes in the first half of Germany’s 7-1 defeat of Brazil are probably the best example in recent memory. 
 
