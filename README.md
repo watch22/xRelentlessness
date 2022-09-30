@@ -6,9 +6,9 @@ My attempt at defining a metric that describes "relentlessness", basically when 
 
 The way I approached this is by dividing matches into states i.e. level, ahead, and behind, and calculating the xG accumulated during each of these phases as well as the time spent in each of those states.
 
-![xG breakdown](outputs/plots/xG_breakdown_state_logo_18-22.png.png)
+![xG breakdown](outputs/plots/xG_breakdown_state_logo_18-22.png)
 
-![Final table - team_season](outputs/tables/Weighted_xGpMa_18-22.png)
+![Final table - team_season](outputs/tables/updated/Weighted_xGpMa_18-22.png)
 
 ![weighted xg vs minutes ahead](outputs/plots/tot_xG_vs_mins_top4_normalised_logo_18-22.png)
 
