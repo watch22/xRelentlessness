@@ -72,13 +72,12 @@ season_clean <- season_df %>%
                             season == 2020 ~ "2020/21")) %>% 
   arrange(date, match_id, minute) %>% 
   select(competition, season, date, match_id, minute, h_team, a_team, h_a, everything()) %>% 
-  select(-c(X, Y, id, player_id))
+  select(-c(X, Y, id, player_id, Site))
 
 #1. Get xG per Game State ----
 rlnt_xg <- season_clean %>% 
   group_by(match_id) %>% 
   select(1,2, 4:11, 15:16) %>% 
-  select(-c(Site)) %>% 
   mutate(minute = minute,
          h_a = case_when(result == "OwnGoal" & h_a == "h" ~ "a",
                          result == "OwnGoal" & h_a == "a" ~ "h",
