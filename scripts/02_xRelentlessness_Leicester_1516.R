@@ -107,6 +107,21 @@ colnames(lei_xg_h) <- c("competition", "season", "match_id", "team", "goals", "t
 
 colnames(lei_xg_a) <- c("competition", "season", "match_id", "team", "goals", "total_xG", "total_xG_behind","total_xG_level", "total_xG_ahead","total_xG_one_ahead", "weighted_xG_ahead","percentage_diff_ahead", "total_xGA_behind", "total_xGA_ahead", "weighted_xGA_ahead", "total_xGA_one_ahead", "percentage_diff_xGA_ahead")
 
+#add opponents
+lei_xg_h <- left_join(lei_xg_h,select(lei_xg_a,c(match_id,team,goals)),by = "match_id") %>% 
+  rename(team = team.x,
+         goals_for = goals.x,
+         opponent = team.y,
+         goals_against = goals.y) 
+
+lei_xg_a <- left_join(lei_xg_a,select(lei_xg_h,c(match_id,team,goals_for)),by = "match_id") %>% 
+  rename(team = team.x,
+         goals_against = goals_for,
+         goals_for = goals,
+         opponent = team.y
+  )
+
+
 lei_xg_all <- rbind(lei_xg_h, lei_xg_a)%>% 
   mutate(Pos = 1)
 
@@ -218,6 +233,14 @@ lei_min_a <- lei_min_totals %>%
 colnames(lei_min_h) <- c("competition","season","match_id", "team", "one_ahead", "two_ahead", "threeplus_ahead", "min_ahead")
 
 colnames(lei_min_a) <- c("competition","season","match_id", "team", "one_ahead", "two_ahead", "threeplus_ahead", "min_ahead")
+
+#add opponents
+lei_min_h <- left_join(lei_min_h,select(lei_min_a,c(match_id,team)),by = "match_id") %>% 
+  rename(team = team.x,
+         opponent = team.y)
+lei_min_a <- left_join(lei_min_a,select(lei_min_h,c(match_id,team)),by = "match_id") %>% 
+  rename(team = team.x,
+         opponent = team.y)
 
 lei_min_all <- rbind(lei_min_h, lei_min_a)
 

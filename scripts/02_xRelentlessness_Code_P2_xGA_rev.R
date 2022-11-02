@@ -1,3 +1,7 @@
+#load packages ----
+pacman::p_load(tidyverse, StatsBombR, extrafont, ggupset, tibbletime, ggtext, ggrepel, glue, patchwork, cowplot, gtable, grid, magick, here, ggsoccer, janitor, rvest, ggimage, zoo, ggforce)
+
+#import data ----
 league_tables <- read_csv(file = here::here("data", "Europe Top 5 - League Tables 2015 - 2022.csv")) %>% 
   rename(competition = Competition,
          season = Season,
@@ -8,12 +12,37 @@ teamsout <- filter(league_tables,season == "2015/16" & team != "Leicester") %>% 
 
 league_tables %>% filter(teamseason %notin% teamsout)
 
-
-
 league_tables_summary <- league_tables %>% 
   group_by(team) %>% 
   summarise(M = sum(M))
 
+match_df <- list.files(path = here::here("data","understat_shot_xg"), full.names = T, recursive = T)
+season_df <- tibble(File = match_df) %>%
+  extract(File, "Site", remove = FALSE) %>%
+  mutate(Data = lapply(File, read_csv)) %>%
+  unnest(Data)
+
+#clean data ----
+season_clean <- season_df %>% 
+  rename(competition = File) %>% 
+  mutate(competition = str_split(basename(competition),"_")) %>% 
+  rowwise() %>% 
+  mutate(competition = competition[[1]][1]) %>% 
+  mutate(competition = case_when(competition == "bundesliga" ~ "Bundesliga",
+                                 competition == "epl" ~ "Premier League",
+                                 competition == "seriea" ~ "Serie A",
+                                 competition == "laliga" ~ "La Liga",
+                                 competition == "ligue1" ~ "Ligue 1"),
+         season = case_when(season == 2016 ~ "2016/17",
+                            season == 2017 ~ "2017/18",
+                            season == 2018 ~ "2018/19",
+                            season == 2019 ~ "2019/20",
+                            season == 2020 ~ "2020/21")) %>% 
+  arrange(date, match_id, minute) %>% 
+  select(competition, season, date, match_id, minute, h_team, a_team, h_a, everything()) %>% 
+  select(-c(X, Y, id, player_id, Site))
+
+season_clean <- season_clean %>% filter(!is.na(season))
 
 #Divide xG by teams and assign based on game state -----
 xga_wt_rlnt_xg <- season_clean %>% 
@@ -117,6 +146,20 @@ xga_wt_rlnt_xg_a <- xga_wt_rlnt_xg_totals %>%
 colnames(xga_wt_rlnt_xg_h) <- c("competition", "season", "match_id", "team", "goals", "total_xG", "total_xG_behind","total_xG_level", "total_xG_ahead","total_xG_one_ahead", "weighted_xG_ahead","percentage_diff_ahead", "total_xGA_behind", "total_xGA_ahead", "weighted_xGA_ahead", "total_xGA_one_ahead", "percentage_diff_xGA_ahead")
 
 colnames(xga_wt_rlnt_xg_a) <- c("competition", "season", "match_id", "team", "goals", "total_xG", "total_xG_behind","total_xG_level", "total_xG_ahead","total_xG_one_ahead", "weighted_xG_ahead","percentage_diff_ahead", "total_xGA_behind", "total_xGA_ahead", "weighted_xGA_ahead", "total_xGA_one_ahead", "percentage_diff_xGA_ahead")
+
+#add opponents
+xga_wt_rlnt_xg_h <- left_join(xga_wt_rlnt_xg_h,select(xga_wt_rlnt_xg_a,c(match_id,team,goals)),by = "match_id") %>% 
+  rename(team = team.x,
+         goals_for = goals.x,
+         opponent = team.y,
+         goals_against = goals.y) 
+
+xga_wt_rlnt_xg_a <- left_join(xga_wt_rlnt_xg_a,select(xga_wt_rlnt_xg_h,c(match_id,team,goals_for)),by = "match_id") %>% 
+  rename(team = team.x,
+         goals_against = goals_for,
+         goals_for = goals,
+         opponent = team.y
+         ) 
 
 xga_wt_rlnt_xg_all <- rbind(xga_wt_rlnt_xg_h, xga_wt_rlnt_xg_a)%>% 
   left_join(league_tables %>% select(2:4), by = c("team", "season"))
@@ -241,9 +284,17 @@ xga_rlnt_min_a <- xga_rlnt_min_totals %>%
   select(1:3, 5 ,10:13)
 
 colnames(xga_rlnt_min_h) <- c("competition","season","match_id", "team", "one_ahead", "two_ahead", "threeplus_ahead", "min_ahead")
-
 colnames(xga_rlnt_min_a) <- c("competition","season","match_id", "team", "one_ahead", "two_ahead", "threeplus_ahead", "min_ahead")
 
+#add opponents
+xga_rlnt_min_h <- left_join(xga_rlnt_min_h,select(xga_rlnt_min_a,c(match_id,team)),by = "match_id") %>% 
+  rename(team = team.x,
+         opponent = team.y)
+xga_rlnt_min_a <- left_join(xga_rlnt_min_a,select(xga_rlnt_min_h,c(match_id,team)),by = "match_id") %>% 
+  rename(team = team.x,
+         opponent = team.y)
+
+#combine
 xga_rlnt_min_all <- rbind(xga_rlnt_min_h, xga_rlnt_min_a)
 
 #join with mins
@@ -268,10 +319,10 @@ pma_by_team_season <- xga_wt_rlnt_all_fix %>%
          xGApMA = round(total_xGA_ahead/min_ahead,4),
          xGApMA_wt = round(weighted_xGA_ahead/min_ahead,4),
          percent_diff_against = (signif((xGApMA_wt-xGApMA)/xGApMA,3)*100),
-         xG_one_ahead = round(total_xG_one_ahead/one_ahead,4),
-         xGA_one_ahead = round(total_xGA_one_ahead/one_ahead,4)) %>% 
-  select(1:4,10:12,15:17,19,22:30) %>% 
-  left_join(league_tables %>% select(competition, season, team, M), by = c("competition", "season", "team")) %>% 
+         xG_per_one_ahead = round(total_xG_one_ahead/one_ahead,4),
+         xGA_per_one_ahead = round(total_xGA_one_ahead/one_ahead,4)) %>% 
+  select(1:4,10:12,15:17,20,23:31)%>% 
+  left_join(league_tables %>% select(competition, season, team, M, W), by = c("competition", "season", "team")) %>% 
   distinct() %>% 
   #normalise values per average minutes ahead per match
   mutate(min_ahead_per_game = round(min_ahead/M,1),
@@ -280,7 +331,7 @@ pma_by_team_season <- xga_wt_rlnt_all_fix %>%
          norm_percent_diff_for = (signif((norm_xGpMA_wt-norm_xGpMA)/norm_xGpMA,3)*100),
          norm_xGApMA = round(total_xGA_ahead/min_ahead_per_game,2),
          norm_xGApMA_wt = round(weighted_xGA_ahead/min_ahead_per_game,2),
-         norm_percent_diff = (signif((norm_xGApMA_wt-norm_xGApMA)/norm_xGApMA,3)*100),
+         norm_percent_diff_against = (signif((norm_xGApMA_wt-norm_xGApMA)/norm_xGApMA,3)*100),
          one_ahead_per_game = round(one_ahead/M,1),
          norm_xG_one_ahead = round(total_xG_one_ahead/one_ahead_per_game,2),
          norm_xGA_one_ahead = round(total_xGA_one_ahead/one_ahead_per_game,2)) %>% 
@@ -288,3 +339,40 @@ pma_by_team_season <- xga_wt_rlnt_all_fix %>%
 
 
 champions_xGpMA_wt <- pma_by_team_season %>% filter(Pos == 1)
+
+pma_xG_xGA <- pma_by_team_season %>% ungroup() %>% select(competition, 
+                                                         season,
+                                                         team,
+                                                         M,
+                                                         W,
+                                                         Pos,
+                                                         total_xG_ahead,
+                                                         total_xGA_ahead,
+                                                         weighted_xG_ahead,
+                                                         weighted_xGA_ahead,
+                                                         xGpMA,
+                                                         xGApMA,
+                                                         xGpMA_wt,
+                                                         xGApMA_wt,
+                                                         total_xG_one_ahead,
+                                                         total_xGA_one_ahead,
+                                                         xG_per_one_ahead,
+                                                         xGA_per_one_ahead,
+                                                         norm_xGpMA,
+                                                         norm_xGApMA,
+                                                         norm_xGpMA_wt,
+                                                         norm_xGApMA_wt,
+                                                         norm_xG_one_ahead,
+                                                         norm_xGA_one_ahead) 
+
+pma_xGD <- pma_xG_xGA %>% 
+  mutate(total_xGD_ahead = total_xG_ahead - total_xGA_ahead,
+         weighted_xGD_ahead = weighted_xG_ahead - weighted_xGA_ahead,
+         xGDpMA = xGpMA - xGApMA,
+         wt_xGDpMA = xGpMA_wt - xGApMA_wt,
+         total_xGD_one_ahead = total_xG_one_ahead - total_xGA_one_ahead,
+         xGD_per_one_ahead = xG_per_one_ahead - xGA_per_one_ahead,
+         norm_xGDpMA = norm_xGpMA - norm_xGApMA,
+         wt_norm_xGDpMA = norm_xGpMA_wt - norm_xGApMA_wt,
+         norm_xGD_one_ahead = norm_xG_one_ahead - norm_xGA_one_ahead) %>% 
+  select(1:6,contains('xGD'))
